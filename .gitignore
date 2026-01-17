@@ -1,5 +1,5 @@
 # Binaries
-scope
+/scope
 scope-*
 *.exe
 *.dll
