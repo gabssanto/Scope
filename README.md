@@ -129,22 +129,115 @@ scope remove-tag old-project
 
 ## Development
 
+### Quick Start
+
 ```bash
-# Run from source
-go run cmd/scope/main.go tag . test
+# Clone the repository
+git clone https://github.com/gabssanto/Scope.git
+cd Scope
+
+# Install dependencies
+make deps
 
 # Build
-go build -o scope cmd/scope/main.go
+make build
 
-# Cross-compile
-GOOS=linux GOARCH=amd64 go build -o scope-linux cmd/scope/main.go
-GOOS=darwin GOARCH=amd64 go build -o scope-macos cmd/scope/main.go
-GOOS=windows GOARCH=amd64 go build -o scope.exe cmd/scope/main.go
+# Run tests
+make test
+
+# Run integration tests
+make test-integration
+```
+
+### Makefile Commands
+
+The project includes a comprehensive Makefile with many useful commands:
+
+```bash
+make help           # Show all available commands
+make build          # Build the binary
+make test           # Run unit tests with race detector
+make test-coverage  # Run tests with coverage report
+make test-integration # Run integration tests
+make clean          # Remove build artifacts
+make install        # Install to /usr/local/bin
+make ci             # Run all CI checks (fmt, vet, lint, test, build)
+```
+
+### Testing
+
+Scope has comprehensive test coverage:
+
+- **Unit tests**: Test individual packages (`internal/db`, `internal/tag`, `internal/session`)
+- **Integration tests**: End-to-end testing of CLI commands
+- **Benchmarks**: Performance testing for critical operations
+
+```bash
+# Run all unit tests
+make test
+
+# Run with coverage
+make test-coverage
+
+# Run integration tests
+make test-integration
+
+# Run benchmarks
+make benchmark
+
+# Quick test (short mode)
+make qtest
+```
+
+### Building for Release
+
+```bash
+# Build for all platforms
+make build-all
+
+# Create release packages
+make release
+
+# Or use the build script
+./scripts/build-release.sh
+```
+
+### Code Quality
+
+```bash
+# Format code
+make fmt
+
+# Run vet
+make vet
+
+# Run linters (requires golangci-lint)
+make lint
+
+# Run all checks
+make ci
 ```
 
 ## Contributing
 
-Contributions welcome! Please open an issue or PR.
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes
+4. Run tests (`make test && make test-integration`)
+5. Run code quality checks (`make ci`)
+6. Commit your changes (`git commit -m 'Add amazing feature'`)
+7. Push to the branch (`git push origin feature/amazing-feature`)
+8. Open a Pull Request
+
+### Development Guidelines
+
+- Write tests for new features
+- Maintain test coverage above 80%
+- Follow Go best practices and idioms
+- Run `make ci` before submitting PRs
+- Update documentation for user-facing changes
 
 ## License
 

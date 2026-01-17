@@ -41,6 +41,13 @@ func InitDB() error {
 			return
 		}
 
+		// Enable foreign keys
+		_, e = db.Exec("PRAGMA foreign_keys = ON")
+		if e != nil {
+			err = fmt.Errorf("failed to enable foreign keys: %w", e)
+			return
+		}
+
 		// Create tables
 		err = createTables()
 	})
@@ -58,6 +65,16 @@ func Close() error {
 		return db.Close()
 	}
 	return nil
+}
+
+// ResetForTesting resets the database singleton for testing purposes
+// This should only be used in tests
+func ResetForTesting() {
+	if db != nil {
+		db.Close()
+	}
+	db = nil
+	once = sync.Once{}
 }
 
 // createTables creates the necessary database tables

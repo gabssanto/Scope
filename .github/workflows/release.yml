@@ -1,0 +1,167 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get version from tag
+      id: get_version
+      run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+    - name: Generate changelog
+      id: changelog
+      uses: metcalfc/changelog-generator@v4.3.1
+      with:
+        myToken: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref_name }}
+        body: |
+          ## Scope ${{ steps.get_version.outputs.version }}
+
+          ### Changes
+          ${{ steps.changelog.outputs.changelog }}
+
+          ### Installation
+
+          **Linux/macOS:**
+          ```bash
+          curl -sf https://raw.githubusercontent.com/gabssanto/Scope/main/install.sh | sh
+          ```
+
+          **Or download the binary for your platform below:**
+
+        draft: false
+        prerelease: false
+
+  build-and-upload:
+    name: Build and Upload
+    needs: create-release
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+
+    - name: Build binary
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+        VERSION: ${{ needs.create-release.outputs.version }}
+      run: |
+        OUTPUT_NAME=scope-${{ matrix.goos }}-${{ matrix.goarch }}
+        if [ "${{ matrix.goos }}" == "windows" ]; then
+          OUTPUT_NAME="${OUTPUT_NAME}.exe"
+        fi
+        go build -ldflags="-s -w -X main.Version=${VERSION}" -o "${OUTPUT_NAME}" ./cmd/scope/main.go
+
+    - name: Create tarball (Unix)
+      if: matrix.goos != 'windows'
+      run: |
+        BINARY_NAME=scope-${{ matrix.goos }}-${{ matrix.goarch }}
+        tar czf ${BINARY_NAME}.tar.gz ${BINARY_NAME}
+        sha256sum ${BINARY_NAME}.tar.gz > ${BINARY_NAME}.tar.gz.sha256
+
+    - name: Create zip (Windows)
+      if: matrix.goos == 'windows'
+      run: |
+        BINARY_NAME=scope-${{ matrix.goos }}-${{ matrix.goarch }}.exe
+        zip ${BINARY_NAME}.zip ${BINARY_NAME}
+        sha256sum ${BINARY_NAME}.zip > ${BINARY_NAME}.zip.sha256
+
+    - name: Upload Release Asset (Unix tarball)
+      if: matrix.goos != 'windows'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./scope-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+        asset_name: scope-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Upload Release Asset (Unix checksum)
+      if: matrix.goos != 'windows'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./scope-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz.sha256
+        asset_name: scope-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz.sha256
+        asset_content_type: text/plain
+
+    - name: Upload Release Asset (Windows zip)
+      if: matrix.goos == 'windows'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./scope-${{ matrix.goos }}-${{ matrix.goarch }}.exe.zip
+        asset_name: scope-${{ matrix.goos }}-${{ matrix.goarch }}.exe.zip
+        asset_content_type: application/zip
+
+    - name: Upload Release Asset (Windows checksum)
+      if: matrix.goos == 'windows'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./scope-${{ matrix.goos }}-${{ matrix.goarch }}.exe.zip.sha256
+        asset_name: scope-${{ matrix.goos }}-${{ matrix.goarch }}.exe.zip.sha256
+        asset_content_type: text/plain
+
+    - name: Upload Raw Binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./scope-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+        asset_name: scope-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+        asset_content_type: application/octet-stream
