@@ -6,6 +6,7 @@ on:
     paths-ignore:
       - '**.md'
       - '.github/workflows/ci.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -82,6 +83,9 @@ jobs:
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
+        # Delete tag if it already exists (e.g., from a failed run)
+        git tag -d ${{ steps.get_tag.outputs.new_tag }} 2>/dev/null || true
+        git push origin --delete ${{ steps.get_tag.outputs.new_tag }} 2>/dev/null || true
         git tag -a ${{ steps.get_tag.outputs.new_tag }} -m "Release ${{ steps.get_tag.outputs.new_tag }}"
         git push origin ${{ steps.get_tag.outputs.new_tag }}
 
