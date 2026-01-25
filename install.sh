@@ -26,9 +26,8 @@ case $OS in
 esac
 
 BINARY="scope-${OS}-${ARCH}"
-ARCHIVE="${BINARY}.tar.gz"
 REPO="gabssanto/Scope"
-URL="https://github.com/${REPO}/releases/latest/download/${ARCHIVE}"
+URL="https://github.com/${REPO}/releases/latest/download/${BINARY}"
 
 echo "Installing Scope for ${OS}/${ARCH}..."
 echo "Downloading from: $URL"
@@ -39,29 +38,26 @@ trap "rm -rf ${TMP_DIR}" EXIT
 
 cd "${TMP_DIR}"
 
-# Download archive
+# Download binary
 if command -v curl > /dev/null 2>&1; then
-    curl -L -o "${ARCHIVE}" "$URL"
+    curl -fSL -o scope "$URL"
 elif command -v wget > /dev/null 2>&1; then
-    wget -O "${ARCHIVE}" "$URL"
+    wget -O scope "$URL"
 else
     echo "Error: curl or wget is required"
     exit 1
 fi
 
-# Extract binary
-tar xzf "${ARCHIVE}"
-
 # Make executable
-chmod +x "${BINARY}"
+chmod +x scope
 
 # Install to /usr/local/bin
 if [ -w /usr/local/bin ]; then
-    mv "${BINARY}" /usr/local/bin/scope
+    mv scope /usr/local/bin/scope
     echo "Scope installed to /usr/local/bin/scope"
 else
     echo "Installing to /usr/local/bin requires sudo..."
-    sudo mv "${BINARY}" /usr/local/bin/scope
+    sudo mv scope /usr/local/bin/scope
     echo "Scope installed to /usr/local/bin/scope"
 fi
 
