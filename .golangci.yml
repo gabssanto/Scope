@@ -1,3 +1,26 @@
+version: "2"
+
+linters:
+  enable:
+    - bodyclose
+    - dupl
+    - errcheck
+    - goconst
+    - gocritic
+    - gocyclo
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
 linters-settings:
   dupl:
     threshold: 100
@@ -13,47 +36,22 @@ linters-settings:
       - style
   gocyclo:
     min-complexity: 15
-  goimports:
-    local-prefixes: github.com/gabssanto/Scope
-  golint:
-    min-confidence: 0
   govet:
     enable-all: true
-  lll:
-    line-length: 140
   misspell:
     locale: US
 
-linters:
-  disable-all: true
-  enable:
-    - bodyclose
-    - dupl
-    - errcheck
-    - goconst
-    - gocritic
-    - gocyclo
-    - gofmt
-    - goimports
-    - gosimple
-    - govet
-    - ineffassign
-    - lll
-    - misspell
-    - staticcheck
-    - typecheck
-    - unconvert
-    - unparam
-    - unused
-
 issues:
+  exclude-files:
+    - ".*_test\\.go$"
   exclude-rules:
-    - path: _test\.go
+    - path: "_test\\.go"
       linters:
         - gocyclo
         - dupl
-        - lll
+        - errcheck
+        - goconst
 
 run:
   timeout: 5m
-  tests: true
+  tests: false

@@ -71,7 +71,7 @@ func Close() error {
 // This should only be used in tests
 func ResetForTesting() {
 	if db != nil {
-		db.Close()
+		_ = db.Close()
 	}
 	db = nil
 	once = sync.Once{}

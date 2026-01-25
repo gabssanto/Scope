@@ -1,0 +1,128 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - '.github/workflows/ci.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  auto-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get latest tag
+      id: get_tag
+      run: |
+        # Get the latest tag, default to v0.0.0 if none exists
+        LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+        echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+
+        # Extract version numbers
+        VERSION=${LATEST_TAG#v}
+        MAJOR=$(echo $VERSION | cut -d. -f1)
+        MINOR=$(echo $VERSION | cut -d. -f2)
+        PATCH=$(echo $VERSION | cut -d. -f3)
+
+        # Increment patch version
+        NEW_PATCH=$((PATCH + 1))
+        NEW_TAG="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+
+        echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+        echo "new_version=${MAJOR}.${MINOR}.${NEW_PATCH}" >> $GITHUB_OUTPUT
+
+    - name: Check if release needed
+      id: check_release
+      run: |
+        # Check if HEAD is already tagged
+        if git describe --exact-match HEAD 2>/dev/null; then
+          echo "skip=true" >> $GITHUB_OUTPUT
+        else
+          echo "skip=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Set up Go
+      if: steps.check_release.outputs.skip != 'true'
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+
+    - name: Run tests
+      if: steps.check_release.outputs.skip != 'true'
+      run: go test -v ./...
+
+    - name: Build binaries
+      if: steps.check_release.outputs.skip != 'true'
+      run: |
+        mkdir -p dist
+
+        # Build for all platforms
+        GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${{ steps.get_tag.outputs.new_version }}" -o dist/scope-linux-amd64 ./cmd/scope/main.go
+        GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${{ steps.get_tag.outputs.new_version }}" -o dist/scope-linux-arm64 ./cmd/scope/main.go
+        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${{ steps.get_tag.outputs.new_version }}" -o dist/scope-darwin-amd64 ./cmd/scope/main.go
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${{ steps.get_tag.outputs.new_version }}" -o dist/scope-darwin-arm64 ./cmd/scope/main.go
+        GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${{ steps.get_tag.outputs.new_version }}" -o dist/scope-windows-amd64.exe ./cmd/scope/main.go
+
+        # Create checksums
+        cd dist
+        sha256sum * > checksums.txt
+
+    - name: Create tag
+      if: steps.check_release.outputs.skip != 'true'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git tag -a ${{ steps.get_tag.outputs.new_tag }} -m "Release ${{ steps.get_tag.outputs.new_tag }}"
+        git push origin ${{ steps.get_tag.outputs.new_tag }}
+
+    - name: Generate changelog
+      if: steps.check_release.outputs.skip != 'true'
+      id: changelog
+      run: |
+        # Get commits since last tag
+        CHANGELOG=$(git log ${{ steps.get_tag.outputs.latest_tag }}..HEAD --pretty=format:"- %s" --no-merges 2>/dev/null || git log --pretty=format:"- %s" --no-merges -10)
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGELOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      if: steps.check_release.outputs.skip != 'true'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.get_tag.outputs.new_tag }}
+        name: Release ${{ steps.get_tag.outputs.new_tag }}
+        body: |
+          ## Scope ${{ steps.get_tag.outputs.new_version }}
+
+          ### Changes
+          ${{ steps.changelog.outputs.changelog }}
+
+          ### Installation
+
+          **Linux/macOS:**
+          ```bash
+          curl -sf https://raw.githubusercontent.com/gabssanto/Scope/main/install.sh | sh
+          ```
+
+          **Or download the binary for your platform below.**
+        files: |
+          dist/scope-linux-amd64
+          dist/scope-linux-arm64
+          dist/scope-darwin-amd64
+          dist/scope-darwin-arm64
+          dist/scope-windows-amd64.exe
+          dist/checksums.txt
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

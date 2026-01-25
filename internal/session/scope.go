@@ -85,15 +85,22 @@ func StartSession(tagName string) error {
 	)
 
 	// Run the shell
-	if err := cmd.Run(); err != nil {
-		// Check if it's an exit status error
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
-				// Exit with the same status code as the shell
-				os.Exit(status.ExitStatus())
+	shellErr := cmd.Run()
+
+	// Cleanup happens here via defer before we potentially exit
+
+	if shellErr != nil {
+		// Check if it's an exit status error (user exited shell with non-zero)
+		if exitErr, ok := shellErr.(*exec.ExitError); ok {
+			if _, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+				// Return nil - the shell exited normally (possibly with non-zero)
+				// The defer cleanup will run, then main() will exit with 0
+				// We don't propagate shell exit codes as errors
+				fmt.Println("\nScope session ended. Workspace cleaned up.")
+				return nil
 			}
 		}
-		return fmt.Errorf("failed to run shell: %w", err)
+		return fmt.Errorf("failed to run shell: %w", shellErr)
 	}
 
 	fmt.Println("\nScope session ended. Workspace cleaned up.")

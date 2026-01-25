@@ -12,6 +12,9 @@ import (
 	"github.com/gabssanto/Scope/internal/tag"
 )
 
+// Version is set at build time via ldflags
+var Version = "dev"
+
 const usage = `Scope - Fast folder navigation with tags
 
 Usage:
@@ -21,6 +24,14 @@ Usage:
   scope start <tag>             Start a scoped session
   scope remove-tag <tag>        Delete a tag entirely
   scope help                    Show this help message
+  scope version                 Show version information
+
+Sessions:
+  When you run 'scope start <tag>', a new shell opens in a temporary
+  workspace containing symlinks to all folders with that tag.
+
+  To exit a session, simply type 'exit' or press Ctrl+D.
+  The temporary workspace is automatically cleaned up when you exit.
 
 Examples:
   scope tag . work              Tag current directory with 'work'
@@ -44,7 +55,7 @@ func run() error {
 	if err := db.InitDB(); err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Parse command
 	if len(os.Args) < 2 {
@@ -67,6 +78,9 @@ func run() error {
 		return handleRemoveTag()
 	case "help", "--help", "-h":
 		fmt.Print(usage)
+		return nil
+	case "version", "--version", "-v":
+		fmt.Printf("scope version %s\n", Version)
 		return nil
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)

@@ -25,7 +25,7 @@ func AddTag(path, tagName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	now := time.Now().Unix()
 
@@ -140,7 +140,7 @@ func ListTags() (map[string]int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tags: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	tags := make(map[string]int)
 	for rows.Next() {
@@ -173,7 +173,7 @@ func ListFoldersByTag(tagName string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query folders: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var folders []string
 	for rows.Next() {
@@ -205,7 +205,7 @@ func GetTagsForFolder(path string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tags: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var tags []string
 	for rows.Next() {
