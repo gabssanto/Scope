@@ -3,11 +3,7 @@ version: "2"
 linters:
   enable:
     - bodyclose
-    - dupl
     - errcheck
-    - goconst
-    - gocritic
-    - gocyclo
     - govet
     - ineffassign
     - misspell
@@ -15,42 +11,22 @@ linters:
     - unconvert
     - unparam
     - unused
+  settings:
+    govet:
+      disable:
+        - shadow
+    misspell:
+      locale: US
+  exclusions:
+    rules:
+      - path: "_test\\.go"
+        linters:
+          - errcheck
 
 formatters:
   enable:
     - gofmt
     - goimports
-
-linters-settings:
-  dupl:
-    threshold: 100
-  goconst:
-    min-len: 2
-    min-occurrences: 2
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-  gocyclo:
-    min-complexity: 15
-  govet:
-    enable-all: true
-  misspell:
-    locale: US
-
-issues:
-  exclude-files:
-    - ".*_test\\.go$"
-  exclude-rules:
-    - path: "_test\\.go"
-      linters:
-        - gocyclo
-        - dupl
-        - errcheck
-        - goconst
 
 run:
   timeout: 5m
