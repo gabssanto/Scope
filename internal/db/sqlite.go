@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 var (
@@ -35,7 +35,7 @@ func InitDB() error {
 
 		// Open database
 		dbPath := filepath.Join(configDir, "scope.db")
-		db, e = sql.Open("sqlite3", dbPath)
+		db, e = sql.Open("sqlite", dbPath)
 		if e != nil {
 			err = fmt.Errorf("failed to open database: %w", e)
 			return
