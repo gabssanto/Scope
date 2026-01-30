@@ -285,6 +285,189 @@ func RenameTag(oldName, newName string) error {
 	return nil
 }
 
+// MergeTag merges source tag into destination tag (moves all folders, deletes source)
+func MergeTag(srcName, dstName string) (int, error) {
+	database := db.GetDB()
+	if database == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+
+	// Check if source tag exists
+	var srcID int64
+	err := database.QueryRow("SELECT id FROM tags WHERE name = ?", srcName).Scan(&srcID)
+	if err == sql.ErrNoRows {
+		return 0, fmt.Errorf("source tag not found: %s", srcName)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to query source tag: %w", err)
+	}
+
+	// Check if destination tag exists, create if not
+	var dstID int64
+	err = database.QueryRow("SELECT id FROM tags WHERE name = ?", dstName).Scan(&dstID)
+	if err == sql.ErrNoRows {
+		// Create destination tag
+		result, err := database.Exec("INSERT INTO tags (name, created_at) VALUES (?, ?)", dstName, time.Now().Unix())
+		if err != nil {
+			return 0, fmt.Errorf("failed to create destination tag: %w", err)
+		}
+		dstID, _ = result.LastInsertId()
+	} else if err != nil {
+		return 0, fmt.Errorf("failed to query destination tag: %w", err)
+	}
+
+	// Get folders from source tag
+	folders, err := ListFoldersByTag(srcName)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get folders for source tag: %w", err)
+	}
+
+	// Move folder associations to destination tag
+	movedCount := 0
+	for _, folder := range folders {
+		// Get folder ID
+		var folderID int64
+		err := database.QueryRow("SELECT id FROM folders WHERE path = ?", folder).Scan(&folderID)
+		if err != nil {
+			continue
+		}
+
+		// Insert into destination (ignore if already exists)
+		_, err = database.Exec("INSERT OR IGNORE INTO folder_tags (folder_id, tag_id, created_at) VALUES (?, ?, ?)",
+			folderID, dstID, time.Now().Unix())
+		if err == nil {
+			movedCount++
+		}
+	}
+
+	// Delete source tag (cascade deletes folder_tags)
+	_, err = database.Exec("DELETE FROM tags WHERE id = ?", srcID)
+	if err != nil {
+		return movedCount, fmt.Errorf("failed to delete source tag: %w", err)
+	}
+
+	return movedCount, nil
+}
+
+// CloneTag copies all folder associations from source tag to a new tag
+func CloneTag(srcName, newName string) (int, error) {
+	database := db.GetDB()
+	if database == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+
+	// Check if source tag exists
+	var srcID int64
+	err := database.QueryRow("SELECT id FROM tags WHERE name = ?", srcName).Scan(&srcID)
+	if err == sql.ErrNoRows {
+		return 0, fmt.Errorf("source tag not found: %s", srcName)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to query source tag: %w", err)
+	}
+
+	// Check if new tag already exists
+	var existingID int64
+	err = database.QueryRow("SELECT id FROM tags WHERE name = ?", newName).Scan(&existingID)
+	if err == nil {
+		return 0, fmt.Errorf("tag already exists: %s", newName)
+	}
+	if err != sql.ErrNoRows {
+		return 0, fmt.Errorf("failed to check existing tag: %w", err)
+	}
+
+	// Create new tag
+	result, err := database.Exec("INSERT INTO tags (name, created_at) VALUES (?, ?)", newName, time.Now().Unix())
+	if err != nil {
+		return 0, fmt.Errorf("failed to create new tag: %w", err)
+	}
+	newID, _ := result.LastInsertId()
+
+	// Copy folder associations
+	res, err := database.Exec(`
+		INSERT INTO folder_tags (folder_id, tag_id, created_at)
+		SELECT folder_id, ?, ? FROM folder_tags WHERE tag_id = ?
+	`, newID, time.Now().Unix(), srcID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to copy folder associations: %w", err)
+	}
+
+	count, _ := res.RowsAffected()
+	return int(count), nil
+}
+
+// DoctorResult holds the results of a health check
+type DoctorResult struct {
+	TotalTags         int
+	TotalFolders      int
+	TotalAssociations int
+	OrphanedTags      []string // Tags with no folders
+	MissingFolders    []string // Folders that don't exist on disk
+	DuplicateFolders  []string // Same path registered multiple times
+}
+
+// Doctor performs health checks on the database
+func Doctor() (*DoctorResult, error) {
+	database := db.GetDB()
+	if database == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	result := &DoctorResult{}
+
+	// Count tags
+	err := database.QueryRow("SELECT COUNT(*) FROM tags").Scan(&result.TotalTags)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count tags: %w", err)
+	}
+
+	// Count folders
+	err = database.QueryRow("SELECT COUNT(*) FROM folders").Scan(&result.TotalFolders)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count folders: %w", err)
+	}
+
+	// Count associations
+	err = database.QueryRow("SELECT COUNT(*) FROM folder_tags").Scan(&result.TotalAssociations)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count associations: %w", err)
+	}
+
+	// Find orphaned tags (tags with no folders)
+	rows, err := database.Query(`
+		SELECT t.name FROM tags t
+		LEFT JOIN folder_tags ft ON t.id = ft.tag_id
+		WHERE ft.tag_id IS NULL
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query orphaned tags: %w", err)
+	}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err == nil {
+			result.OrphanedTags = append(result.OrphanedTags, name)
+		}
+	}
+	_ = rows.Close()
+
+	// Find missing folders (folders that don't exist on disk)
+	rows, err = database.Query("SELECT path FROM folders")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query folders: %w", err)
+	}
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err == nil {
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				result.MissingFolders = append(result.MissingFolders, path)
+			}
+		}
+	}
+	_ = rows.Close()
+
+	return result, nil
+}
+
 // PruneResult holds the result of a prune operation
 type PruneResult struct {
 	RemovedFolders []string

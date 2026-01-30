@@ -62,12 +62,22 @@ else
 fi
 
 # Verify installation
-if command -v scope > /dev/null 2>&1; then
+echo ""
+echo "Installation successful!"
+echo ""
+
+# Check for PATH conflicts
+INSTALLED_PATH=$(which scope 2>/dev/null || true)
+if [ -n "$INSTALLED_PATH" ] && [ "$INSTALLED_PATH" != "/usr/local/bin/scope" ]; then
+    echo "⚠️  Warning: Another 'scope' binary found at: $INSTALLED_PATH"
+    echo "   This may take precedence over the newly installed version."
     echo ""
-    echo "Installation successful!"
+    echo "   To fix this, either:"
+    echo "   1. Remove the old binary: rm $INSTALLED_PATH"
+    echo "   2. Or run directly: /usr/local/bin/scope"
     echo ""
-    scope help
-else
-    echo "Installation may have failed. Please check /usr/local/bin/scope"
-    exit 1
 fi
+
+/usr/local/bin/scope version
+echo ""
+echo "Run 'scope help' for usage information."

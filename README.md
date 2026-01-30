@@ -69,6 +69,41 @@ sudo mv scope /usr/local/bin/
 
 Download the latest binary for your platform from [GitHub Releases](https://github.com/gabssanto/Scope/releases).
 
+### Troubleshooting Installation
+
+If after installing you still see an old version or get "Unknown command" errors:
+
+```bash
+# Check which scope is being used
+which scope
+
+# Check all scope binaries in your PATH
+which -a scope
+```
+
+**Problem:** An older version in `~/bin` or another directory takes precedence over `/usr/local/bin`.
+
+**Solution:** Remove or rename the old binary:
+
+```bash
+# Remove old binary (adjust path as needed)
+rm ~/bin/scope
+
+# Or if you want to keep it, rename it
+mv ~/bin/scope ~/bin/scope-old
+
+# Verify the correct version is now used
+which scope
+scope version
+```
+
+**Alternative:** Run the new binary directly:
+
+```bash
+/usr/local/bin/scope version
+/usr/local/bin/scope update
+```
+
 ## Commands
 
 ### Tagging
@@ -126,6 +161,22 @@ Rename a tag across all folders.
 
 ```bash
 scope rename old-name new-name
+```
+
+#### `scope merge <source> <destination>`
+
+Merge source tag into destination tag. All folders from the source tag are moved to the destination, and the source tag is deleted.
+
+```bash
+scope merge old-tag new-tag
+```
+
+#### `scope clone-tag <source> <new>`
+
+Copy all folder associations from source tag to a new tag. The source tag remains unchanged.
+
+```bash
+scope clone-tag work work-backup
 ```
 
 #### `scope remove-tag <tag>`
@@ -250,6 +301,20 @@ Remove folders that no longer exist from the database.
 scope prune --dry-run   # Preview what would be removed
 scope prune             # Actually remove stale entries
 ```
+
+#### `scope doctor`
+
+Check database health and identify issues.
+
+```bash
+scope doctor
+```
+
+Shows:
+- Database statistics (tags, folders, associations)
+- Orphaned tags (tags with no folders)
+- Missing folders (paths that don't exist on disk)
+- Suggested fixes for each issue
 
 #### `scope update [--check]`
 

@@ -16,7 +16,7 @@ _scope_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="tag bulk untag tags list start scan go pick open edit each status pull rename remove-tag prune export import update debug help version completions"
+    commands="tag bulk untag tags list start scan go pick open edit each status pull rename merge clone-tag remove-tag prune doctor export import update debug help version completions"
 
     # Get tags dynamically
     if command -v scope &> /dev/null; then
@@ -38,8 +38,8 @@ _scope_completions() {
             COMPREPLY=( $(compgen -W "${tags}" -- "${cur}") )
             return 0
             ;;
-        rename)
-            # Complete with tag names for rename
+        rename|merge|clone-tag)
+            # Complete with tag names
             COMPREPLY=( $(compgen -W "${tags}" -- "${cur}") )
             return 0
             ;;
@@ -117,8 +117,11 @@ _scope() {
         'status:Git status across folders'
         'pull:Git pull across folders'
         'rename:Rename a tag'
+        'merge:Merge source tag into destination'
+        'clone-tag:Copy tag associations to new tag'
         'remove-tag:Delete a tag entirely'
         'prune:Remove non-existent folders'
+        'doctor:Check database health'
         'export:Export tags to YAML'
         'import:Import tags from YAML'
         'update:Update to latest version'
@@ -149,7 +152,7 @@ _scope() {
                 list|start|go|open|edit|status|pull|remove-tag|pick)
                     _describe -t tags 'tags' tags
                     ;;
-                rename)
+                rename|merge|clone-tag)
                     _describe -t tags 'tags' tags
                     ;;
                 each)
@@ -213,8 +216,11 @@ complete -c scope -n "__fish_use_subcommand" -a "each" -d "Run command in each f
 complete -c scope -n "__fish_use_subcommand" -a "status" -d "Git status across folders"
 complete -c scope -n "__fish_use_subcommand" -a "pull" -d "Git pull across folders"
 complete -c scope -n "__fish_use_subcommand" -a "rename" -d "Rename a tag"
+complete -c scope -n "__fish_use_subcommand" -a "merge" -d "Merge source tag into destination"
+complete -c scope -n "__fish_use_subcommand" -a "clone-tag" -d "Copy tag associations"
 complete -c scope -n "__fish_use_subcommand" -a "remove-tag" -d "Delete a tag entirely"
 complete -c scope -n "__fish_use_subcommand" -a "prune" -d "Remove non-existent folders"
+complete -c scope -n "__fish_use_subcommand" -a "doctor" -d "Check database health"
 complete -c scope -n "__fish_use_subcommand" -a "export" -d "Export tags to YAML"
 complete -c scope -n "__fish_use_subcommand" -a "import" -d "Import tags from YAML"
 complete -c scope -n "__fish_use_subcommand" -a "update" -d "Update to latest version"
@@ -230,7 +236,7 @@ end
 
 # Tag completions for commands that take tags
 complete -c scope -n "__fish_seen_subcommand_from list start go open edit status pull remove-tag pick" -a "(__scope_tags)" -d "Tag"
-complete -c scope -n "__fish_seen_subcommand_from rename" -a "(__scope_tags)" -d "Tag"
+complete -c scope -n "__fish_seen_subcommand_from rename merge clone-tag" -a "(__scope_tags)" -d "Tag"
 complete -c scope -n "__fish_seen_subcommand_from each" -a "(__scope_tags)" -d "Tag"
 
 # Directory completion for tag/untag/tags

@@ -45,8 +45,11 @@ Usage:
   scope status <tag>            Git status across tagged folders
   scope pull <tag>              Git pull across tagged folders
   scope rename <old> <new>      Rename a tag
+  scope merge <src> <dst>       Merge source tag into destination tag
+  scope clone-tag <tag> <new>   Copy tag associations to new tag
   scope remove-tag <tag>        Delete a tag entirely
   scope prune [--dry-run]       Remove folders that no longer exist
+  scope doctor                  Check database health and fix issues
   scope export                  Export all tags to YAML
   scope import <file>           Import tags from YAML file
   scope update [--check]        Update to latest version
@@ -164,10 +167,16 @@ func run() error {
 		return handlePull()
 	case "rename":
 		return handleRename()
+	case "merge":
+		return handleMerge()
+	case "clone-tag":
+		return handleCloneTag()
 	case "remove-tag":
 		return handleRemoveTag()
 	case "prune":
 		return handlePrune()
+	case "doctor":
+		return handleDoctor()
 	case "export":
 		return handleExport()
 	case "import":
@@ -493,6 +502,99 @@ func handleRename() error {
 	}
 
 	fmt.Printf("Renamed tag '%s' to '%s'\n", oldName, newName)
+	return nil
+}
+
+func handleMerge() error {
+	if len(os.Args) < 4 {
+		return fmt.Errorf("usage: scope merge <source-tag> <destination-tag>")
+	}
+
+	srcName := os.Args[2]
+	dstName := os.Args[3]
+
+	if srcName == dstName {
+		return fmt.Errorf("source and destination tags cannot be the same")
+	}
+
+	count, err := tag.MergeTag(srcName, dstName)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Merged '%s' into '%s' (%d folders moved)\n", srcName, dstName, count)
+	fmt.Printf("Tag '%s' has been deleted\n", srcName)
+	return nil
+}
+
+func handleCloneTag() error {
+	if len(os.Args) < 4 {
+		return fmt.Errorf("usage: scope clone-tag <source-tag> <new-tag>")
+	}
+
+	srcName := os.Args[2]
+	newName := os.Args[3]
+
+	if srcName == newName {
+		return fmt.Errorf("source and new tag names cannot be the same")
+	}
+
+	count, err := tag.CloneTag(srcName, newName)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Cloned '%s' to '%s' (%d folders copied)\n", srcName, newName, count)
+	return nil
+}
+
+func handleDoctor() error {
+	fmt.Println("Running health checks...")
+	fmt.Println()
+
+	result, err := tag.Doctor()
+	if err != nil {
+		return err
+	}
+
+	// Summary
+	fmt.Println("Database Summary")
+	fmt.Println("================")
+	fmt.Printf("Tags:         %d\n", result.TotalTags)
+	fmt.Printf("Folders:      %d\n", result.TotalFolders)
+	fmt.Printf("Associations: %d\n", result.TotalAssociations)
+	fmt.Println()
+
+	issues := 0
+
+	// Orphaned tags
+	if len(result.OrphanedTags) > 0 {
+		issues += len(result.OrphanedTags)
+		fmt.Printf("Orphaned tags (no folders): %d\n", len(result.OrphanedTags))
+		for _, t := range result.OrphanedTags {
+			fmt.Printf("  - %s\n", t)
+		}
+		fmt.Println("  Fix: scope remove-tag <tag>")
+		fmt.Println()
+	}
+
+	// Missing folders
+	if len(result.MissingFolders) > 0 {
+		issues += len(result.MissingFolders)
+		fmt.Printf("Missing folders (don't exist on disk): %d\n", len(result.MissingFolders))
+		for _, f := range result.MissingFolders {
+			fmt.Printf("  - %s\n", f)
+		}
+		fmt.Println("  Fix: scope prune")
+		fmt.Println()
+	}
+
+	if issues == 0 {
+		fmt.Println("No issues found. Database is healthy!")
+	} else {
+		fmt.Printf("Found %d issue(s)\n", issues)
+	}
+
 	return nil
 }
 
