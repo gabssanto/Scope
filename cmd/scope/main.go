@@ -1,16 +1,23 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gabssanto/Scope/internal/db"
 	"github.com/gabssanto/Scope/internal/scan"
 	"github.com/gabssanto/Scope/internal/session"
 	"github.com/gabssanto/Scope/internal/tag"
+	"github.com/gabssanto/Scope/internal/update"
 )
 
 // Version is set at build time via ldflags
@@ -21,10 +28,21 @@ const usage = `Scope - Fast folder navigation with tags
 Usage:
   scope tag <path> <tag>        Tag a folder (use . for current directory)
   scope untag <path> <tag>      Remove a tag from a folder
+  scope tags <path>             Show all tags for a folder
   scope list [tag]              List all tags or folders with specific tag
   scope start <tag>             Start a scoped session
   scope scan [path]             Scan for .scope files and apply tags
+  scope go <tag>                Jump to a tagged folder (outputs path)
+  scope open <tag>              Open tagged folder(s) in file manager
+  scope edit <tag>              Open tagged folder(s) in editor
+  scope each <tag> <cmd>        Run command in each tagged folder
+  scope status <tag>            Git status across tagged folders
+  scope pull <tag>              Git pull across tagged folders
+  scope rename <old> <new>      Rename a tag
   scope remove-tag <tag>        Delete a tag entirely
+  scope prune [--dry-run]       Remove folders that no longer exist
+  scope update [--check]        Update to latest version
+  scope debug                   Show debug information
   scope help                    Show this help message
   scope version                 Show version information
 
@@ -35,14 +53,26 @@ Sessions:
   To exit a session, simply type 'exit' or press Ctrl+D.
   The temporary workspace is automatically cleaned up when you exit.
 
+Navigation:
+  'scope go' outputs a path for shell integration. Add to your .bashrc/.zshrc:
+    sg() { cd "$(scope go "$@")" 2>/dev/null || scope go "$@"; }
+
 Examples:
   scope tag . work              Tag current directory with 'work'
   scope tag ~/projects/app dev  Tag a specific folder
+  scope tags .                  Show tags for current directory
   scope list                    Show all tags
   scope list work               Show all folders tagged 'work'
   scope start work              Open scoped session with 'work' folders
+  scope go work                 Output path to 'work' folder (for cd)
+  scope open work               Open 'work' folders in Finder/Explorer
+  scope edit work               Open 'work' folders in $EDITOR
+  scope each work "git status"  Run git status in each 'work' folder
+  scope each work -p "go test"  Run tests in parallel across folders
   scope untag . work            Remove 'work' tag from current directory
+  scope rename old new          Rename 'old' tag to 'new'
   scope remove-tag old          Delete 'old' tag entirely
+  scope prune --dry-run         Preview folders to be removed
 `
 
 func main() {
@@ -52,12 +82,37 @@ func main() {
 	}
 }
 
+// showUpdateNotice displays update notification if available
+func showUpdateNotice() {
+	// Skip for certain commands that output paths (for shell integration)
+	if len(os.Args) >= 2 {
+		cmd := os.Args[1]
+		// Skip for commands where stdout is used for data
+		if cmd == "go" || cmd == "version" || cmd == "--version" || cmd == "-v" {
+			return
+		}
+	}
+
+	// Check if running in a non-interactive context
+	if os.Getenv("SCOPE_NO_UPDATE_CHECK") != "" {
+		return
+	}
+
+	notice := update.GetUpdateNotice(Version)
+	if notice != "" {
+		fmt.Fprint(os.Stderr, notice)
+	}
+}
+
 func run() error {
 	// Initialize database
 	if err := db.InitDB(); err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
 	defer func() { _ = db.Close() }()
+
+	// Show update notice at the end (only for interactive commands)
+	defer showUpdateNotice()
 
 	// Parse command
 	if len(os.Args) < 2 {
@@ -72,14 +127,36 @@ func run() error {
 		return handleTag()
 	case "untag":
 		return handleUntag()
+	case "tags":
+		return handleTags()
 	case "list":
 		return handleList()
 	case "start":
 		return handleStart()
 	case "scan":
 		return handleScan()
+	case "go":
+		return handleGo()
+	case "open":
+		return handleOpen()
+	case "edit":
+		return handleEdit()
+	case "each":
+		return handleEach()
+	case "status":
+		return handleStatus()
+	case "pull":
+		return handlePull()
+	case "rename":
+		return handleRename()
 	case "remove-tag":
 		return handleRemoveTag()
+	case "prune":
+		return handlePrune()
+	case "update":
+		return handleUpdate()
+	case "debug":
+		return handleDebug()
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 		return nil
@@ -269,4 +346,498 @@ func resolvePath(path string) (string, error) {
 	}
 
 	return absPath, nil
+}
+
+func handleTags() error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: scope tags <path>")
+	}
+
+	path := os.Args[2]
+
+	// Resolve path
+	absPath, err := resolvePath(path)
+	if err != nil {
+		return err
+	}
+
+	tags, err := tag.GetTagsForFolder(absPath)
+	if err != nil {
+		return err
+	}
+
+	if len(tags) == 0 {
+		fmt.Printf("No tags found for '%s'\n", absPath)
+		return nil
+	}
+
+	fmt.Printf("Tags for '%s':\n", absPath)
+	for _, t := range tags {
+		fmt.Printf("  %s\n", t)
+	}
+	return nil
+}
+
+func handleRename() error {
+	if len(os.Args) < 4 {
+		return fmt.Errorf("usage: scope rename <old> <new>")
+	}
+
+	oldName := os.Args[2]
+	newName := os.Args[3]
+
+	if err := tag.RenameTag(oldName, newName); err != nil {
+		return err
+	}
+
+	fmt.Printf("Renamed tag '%s' to '%s'\n", oldName, newName)
+	return nil
+}
+
+func handlePrune() error {
+	dryRun := false
+	if len(os.Args) >= 3 && (os.Args[2] == "--dry-run" || os.Args[2] == "-n") {
+		dryRun = true
+	}
+
+	result, err := tag.Prune(dryRun)
+	if err != nil {
+		return err
+	}
+
+	if result.RemovedCount == 0 {
+		fmt.Println("No stale folders found. Everything is clean!")
+		return nil
+	}
+
+	if dryRun {
+		fmt.Printf("Would remove %d stale folder(s):\n", result.RemovedCount)
+	} else {
+		fmt.Printf("Removed %d stale folder(s):\n", result.RemovedCount)
+	}
+
+	for _, path := range result.RemovedFolders {
+		fmt.Printf("  %s\n", path)
+	}
+
+	return nil
+}
+
+func handleDebug() error {
+	homeDir, _ := os.UserHomeDir()
+	dbPath := filepath.Join(homeDir, ".config", "scope", "scope.db")
+
+	fmt.Println("Scope Debug Information")
+	fmt.Println("=======================")
+	fmt.Printf("Version:     %s\n", Version)
+	fmt.Printf("OS/Arch:     %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("Go version:  %s\n", runtime.Version())
+	fmt.Printf("Database:    %s\n", dbPath)
+
+	// Check if db exists
+	if _, err := os.Stat(dbPath); err == nil {
+		info, _ := os.Stat(dbPath)
+		fmt.Printf("DB size:     %d bytes\n", info.Size())
+	} else {
+		fmt.Printf("DB size:     (not found)\n")
+	}
+
+	// Shell info
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "(unknown)"
+	}
+	fmt.Printf("Shell:       %s\n", shell)
+
+	// Scope session info
+	scopeSession := os.Getenv("SCOPE_SESSION")
+	if scopeSession != "" {
+		fmt.Printf("In session:  %s\n", scopeSession)
+		fmt.Printf("Workspace:   %s\n", os.Getenv("SCOPE_WORKSPACE"))
+	}
+
+	// Stats
+	tags, _ := tag.ListTags()
+	totalFolders := 0
+	for _, count := range tags {
+		totalFolders += count
+	}
+	fmt.Printf("\nStats:\n")
+	fmt.Printf("  Tags:      %d\n", len(tags))
+	fmt.Printf("  Folders:   %d tag assignments\n", totalFolders)
+
+	return nil
+}
+
+func handleGo() error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: scope go <tag>")
+	}
+
+	tagName := os.Args[2]
+
+	folders, err := tag.ListFoldersByTag(tagName)
+	if err != nil {
+		return err
+	}
+
+	if len(folders) == 0 {
+		return fmt.Errorf("no folders found with tag '%s'", tagName)
+	}
+
+	// Single folder - just output the path
+	if len(folders) == 1 {
+		fmt.Println(folders[0])
+		return nil
+	}
+
+	// Multiple folders - show picker
+	fmt.Fprintf(os.Stderr, "Multiple folders found for '%s':\n", tagName)
+	for i, folder := range folders {
+		fmt.Fprintf(os.Stderr, "  [%d] %s\n", i+1, folder)
+	}
+	fmt.Fprintf(os.Stderr, "\nSelect folder (1-%d): ", len(folders))
+
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read input: %w", err)
+	}
+
+	input = strings.TrimSpace(input)
+	choice, err := strconv.Atoi(input)
+	if err != nil || choice < 1 || choice > len(folders) {
+		return fmt.Errorf("invalid selection: %s", input)
+	}
+
+	fmt.Println(folders[choice-1])
+	return nil
+}
+
+func handleOpen() error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: scope open <tag>")
+	}
+
+	tagName := os.Args[2]
+
+	folders, err := tag.ListFoldersByTag(tagName)
+	if err != nil {
+		return err
+	}
+
+	if len(folders) == 0 {
+		return fmt.Errorf("no folders found with tag '%s'", tagName)
+	}
+
+	// Determine the open command based on OS
+	var openCmd string
+	switch runtime.GOOS {
+	case "darwin":
+		openCmd = "open"
+	case "linux":
+		openCmd = "xdg-open"
+	case "windows":
+		openCmd = "explorer"
+	default:
+		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	}
+
+	// Open each folder
+	for _, folder := range folders {
+		cmd := exec.Command(openCmd, folder)
+		if err := cmd.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to open '%s': %v\n", folder, err)
+			continue
+		}
+		fmt.Printf("Opened: %s\n", folder)
+	}
+
+	return nil
+}
+
+func handleEdit() error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: scope edit <tag>")
+	}
+
+	tagName := os.Args[2]
+
+	folders, err := tag.ListFoldersByTag(tagName)
+	if err != nil {
+		return err
+	}
+
+	if len(folders) == 0 {
+		return fmt.Errorf("no folders found with tag '%s'", tagName)
+	}
+
+	// Determine editor
+	editor := os.Getenv("VISUAL")
+	if editor == "" {
+		editor = os.Getenv("EDITOR")
+	}
+	if editor == "" {
+		// Try common editors
+		for _, e := range []string{"code", "vim", "nano"} {
+			if _, err := exec.LookPath(e); err == nil {
+				editor = e
+				break
+			}
+		}
+	}
+	if editor == "" {
+		return fmt.Errorf("no editor found. Set $EDITOR or $VISUAL environment variable")
+	}
+
+	// Open each folder in editor
+	for _, folder := range folders {
+		cmd := exec.Command(editor, folder)
+		if err := cmd.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to open '%s' in %s: %v\n", folder, editor, err)
+			continue
+		}
+		fmt.Printf("Opened in %s: %s\n", editor, folder)
+	}
+
+	return nil
+}
+
+func handleEach() error {
+	if len(os.Args) < 4 {
+		return fmt.Errorf("usage: scope each <tag> [-p] <command>")
+	}
+
+	tagName := os.Args[2]
+	parallel := false
+	cmdStart := 3
+
+	// Check for parallel flag
+	if os.Args[3] == "-p" || os.Args[3] == "--parallel" {
+		parallel = true
+		cmdStart = 4
+		if len(os.Args) < 5 {
+			return fmt.Errorf("usage: scope each <tag> [-p] <command>")
+		}
+	}
+
+	// Join remaining args as command
+	command := strings.Join(os.Args[cmdStart:], " ")
+
+	folders, err := tag.ListFoldersByTag(tagName)
+	if err != nil {
+		return err
+	}
+
+	if len(folders) == 0 {
+		return fmt.Errorf("no folders found with tag '%s'", tagName)
+	}
+
+	if parallel {
+		return runEachParallel(folders, command)
+	}
+	return runEachSequential(folders, command)
+}
+
+func runEachSequential(folders []string, command string) error {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
+	successCount := 0
+	failCount := 0
+
+	for _, folder := range folders {
+		folderName := filepath.Base(folder)
+		fmt.Printf("\n\033[1;34m[%s]\033[0m %s\n", folderName, folder)
+		fmt.Println(strings.Repeat("-", 40))
+
+		cmd := exec.Command(shell, "-c", command)
+		cmd.Dir = folder
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "\033[1;31mError:\033[0m %v\n", err)
+			failCount++
+		} else {
+			successCount++
+		}
+	}
+
+	fmt.Printf("\n\033[1mSummary:\033[0m %d succeeded, %d failed\n", successCount, failCount)
+	return nil
+}
+
+func runEachParallel(folders []string, command string) error {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
+	type result struct {
+		folder string
+		output string
+		err    error
+	}
+
+	results := make(chan result, len(folders))
+	var wg sync.WaitGroup
+
+	for _, folder := range folders {
+		wg.Add(1)
+		go func(f string) {
+			defer wg.Done()
+
+			var stdout, stderr bytes.Buffer
+			cmd := exec.Command(shell, "-c", command)
+			cmd.Dir = f
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			output := stdout.String()
+			if stderr.Len() > 0 {
+				output += stderr.String()
+			}
+
+			results <- result{folder: f, output: output, err: err}
+		}(folder)
+	}
+
+	// Close results channel when all goroutines complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect and print results
+	successCount := 0
+	failCount := 0
+
+	for r := range results {
+		folderName := filepath.Base(r.folder)
+		fmt.Printf("\n\033[1;34m[%s]\033[0m %s\n", folderName, r.folder)
+		fmt.Println(strings.Repeat("-", 40))
+
+		if r.output != "" {
+			fmt.Print(r.output)
+		}
+
+		if r.err != nil {
+			fmt.Fprintf(os.Stderr, "\033[1;31mError:\033[0m %v\n", r.err)
+			failCount++
+		} else {
+			successCount++
+		}
+	}
+
+	fmt.Printf("\n\033[1mSummary:\033[0m %d succeeded, %d failed\n", successCount, failCount)
+	return nil
+}
+
+func handleStatus() error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: scope status <tag>")
+	}
+
+	tagName := os.Args[2]
+
+	folders, err := tag.ListFoldersByTag(tagName)
+	if err != nil {
+		return err
+	}
+
+	if len(folders) == 0 {
+		return fmt.Errorf("no folders found with tag '%s'", tagName)
+	}
+
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
+	for _, folder := range folders {
+		// Check if it's a git repo
+		gitDir := filepath.Join(folder, ".git")
+		if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+			continue
+		}
+
+		folderName := filepath.Base(folder)
+
+		// Get git status
+		cmd := exec.Command(shell, "-c", "git status -s")
+		cmd.Dir = folder
+		output, _ := cmd.Output()
+
+		if len(output) > 0 {
+			fmt.Printf("\033[1;33m[%s]\033[0m %s\n", folderName, folder)
+			fmt.Print(string(output))
+			fmt.Println()
+		}
+	}
+
+	return nil
+}
+
+func handlePull() error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: scope pull <tag>")
+	}
+
+	tagName := os.Args[2]
+
+	folders, err := tag.ListFoldersByTag(tagName)
+	if err != nil {
+		return err
+	}
+
+	if len(folders) == 0 {
+		return fmt.Errorf("no folders found with tag '%s'", tagName)
+	}
+
+	// Filter to git repos only
+	var gitFolders []string
+	for _, folder := range folders {
+		gitDir := filepath.Join(folder, ".git")
+		if _, err := os.Stat(gitDir); err == nil {
+			gitFolders = append(gitFolders, folder)
+		}
+	}
+
+	if len(gitFolders) == 0 {
+		fmt.Println("No git repositories found with this tag")
+		return nil
+	}
+
+	fmt.Printf("Pulling %d repositories...\n", len(gitFolders))
+	return runEachParallel(gitFolders, "git pull")
+}
+
+func handleUpdate() error {
+	// Check for --check flag
+	checkOnly := false
+	if len(os.Args) >= 3 && (os.Args[2] == "--check" || os.Args[2] == "-c") {
+		checkOnly = true
+	}
+
+	if checkOnly {
+		info, err := update.CheckForUpdate(Version)
+		if err != nil {
+			return fmt.Errorf("failed to check for updates: %w", err)
+		}
+
+		if info.UpdateAvailable {
+			fmt.Printf("Update available: %s (current: %s)\n", info.LatestVersion, info.CurrentVersion)
+			fmt.Printf("Run 'scope update' to install\n")
+			fmt.Printf("Release: %s\n", info.ReleaseURL)
+		} else {
+			fmt.Printf("Already up to date (version %s)\n", Version)
+		}
+		return nil
+	}
+
+	return update.PerformUpdate(Version)
 }

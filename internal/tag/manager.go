@@ -218,3 +218,105 @@ func GetTagsForFolder(path string) ([]string, error) {
 
 	return tags, nil
 }
+
+// RenameTag renames a tag across all folders
+func RenameTag(oldName, newName string) error {
+	database := db.GetDB()
+	if database == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// Check if old tag exists
+	var oldID int64
+	err := database.QueryRow("SELECT id FROM tags WHERE name = ?", oldName).Scan(&oldID)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("tag not found: %s", oldName)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to query tag: %w", err)
+	}
+
+	// Check if new tag name already exists
+	var existingID int64
+	err = database.QueryRow("SELECT id FROM tags WHERE name = ?", newName).Scan(&existingID)
+	if err == nil {
+		return fmt.Errorf("tag already exists: %s", newName)
+	}
+	if err != sql.ErrNoRows {
+		return fmt.Errorf("failed to check existing tag: %w", err)
+	}
+
+	// Rename the tag
+	_, err = database.Exec("UPDATE tags SET name = ? WHERE id = ?", newName, oldID)
+	if err != nil {
+		return fmt.Errorf("failed to rename tag: %w", err)
+	}
+
+	return nil
+}
+
+// PruneResult holds the result of a prune operation
+type PruneResult struct {
+	RemovedFolders []string
+	RemovedCount   int
+}
+
+// Prune removes folders that no longer exist from the database
+func Prune(dryRun bool) (*PruneResult, error) {
+	database := db.GetDB()
+	if database == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Get all folders
+	rows, err := database.Query("SELECT id, path FROM folders")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query folders: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var toRemove []struct {
+		id   int64
+		path string
+	}
+
+	for rows.Next() {
+		var id int64
+		var path string
+		if err := rows.Scan(&id, &path); err != nil {
+			return nil, fmt.Errorf("failed to scan folder: %w", err)
+		}
+
+		// Check if folder exists
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			toRemove = append(toRemove, struct {
+				id   int64
+				path string
+			}{id, path})
+		}
+	}
+
+	result := &PruneResult{
+		RemovedFolders: make([]string, 0, len(toRemove)),
+	}
+
+	if dryRun {
+		for _, f := range toRemove {
+			result.RemovedFolders = append(result.RemovedFolders, f.path)
+		}
+		result.RemovedCount = len(toRemove)
+		return result, nil
+	}
+
+	// Remove non-existent folders
+	for _, f := range toRemove {
+		_, err := database.Exec("DELETE FROM folders WHERE id = ?", f.id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to delete folder %s: %w", f.path, err)
+		}
+		result.RemovedFolders = append(result.RemovedFolders, f.path)
+	}
+	result.RemovedCount = len(toRemove)
+
+	return result, nil
+}

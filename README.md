@@ -11,6 +11,9 @@ Scope lets you tag folders with custom labels and create temporary workspaces co
 - **Tag any folder** - Mark folders with meaningful labels like `work`, `personal`, `project-x`
 - **Multi-tag support** - One folder can have multiple tags
 - **Instant workspaces** - Create temporary environments showing only tagged folders
+- **Bulk operations** - Run commands across all tagged folders at once
+- **Project scanning** - Auto-tag projects using `.scope` files
+- **Self-updating** - Built-in update system with version checks
 - **Fast & lightweight** - Single binary, no dependencies, SQLite backend
 - **Cross-platform** - Works on Linux, macOS, and Windows
 
@@ -68,7 +71,9 @@ Download the latest binary for your platform from [GitHub Releases](https://gith
 
 ## Commands
 
-### `scope tag <path> <tag>`
+### Tagging
+
+#### `scope tag <path> <tag>`
 
 Tag a folder. Use `.` for current directory. Multiple tags can be comma-separated.
 
@@ -77,16 +82,43 @@ scope tag . work
 scope tag ~/my-project work,urgent,backend
 ```
 
-### `scope untag <path> <tag>`
+#### `scope untag <path> <tag>`
 
-Remove a tag from a folder. Use `.` for current directory.
+Remove a tag from a folder.
 
 ```bash
 scope untag . work
 scope untag ~/my-project urgent
 ```
 
-### `scope list [tag]`
+#### `scope tags <path>`
+
+Show all tags for a specific folder.
+
+```bash
+scope tags .
+scope tags ~/my-project
+```
+
+#### `scope rename <old> <new>`
+
+Rename a tag across all folders.
+
+```bash
+scope rename old-name new-name
+```
+
+#### `scope remove-tag <tag>`
+
+Delete a tag entirely (removes it from all folders).
+
+```bash
+scope remove-tag old-project
+```
+
+### Listing & Navigation
+
+#### `scope list [tag]`
 
 List all tags and their folder counts, or list all folders with a specific tag.
 
@@ -95,7 +127,41 @@ scope list          # Show all tags
 scope list work     # Show all folders tagged 'work'
 ```
 
-### `scope start <tag>`
+#### `scope go <tag>`
+
+Quick jump to a tagged folder. Outputs the path for shell integration.
+
+```bash
+scope go work       # Outputs path (single folder)
+scope go work       # Shows picker (multiple folders)
+```
+
+**Shell integration** - Add to your `.bashrc` or `.zshrc`:
+```bash
+sg() { cd "$(scope go "$@")" 2>/dev/null || scope go "$@"; }
+```
+
+Then use `sg work` to instantly cd to your work folder.
+
+#### `scope open <tag>`
+
+Open tagged folder(s) in your system file manager (Finder/Nautilus/Explorer).
+
+```bash
+scope open work
+```
+
+#### `scope edit <tag>`
+
+Open tagged folder(s) in your editor (`$EDITOR`, `$VISUAL`, or auto-detected).
+
+```bash
+scope edit work
+```
+
+### Sessions
+
+#### `scope start <tag>`
 
 Create a temporary workspace with symlinks to all folders matching the tag.
 
@@ -103,14 +169,129 @@ Create a temporary workspace with symlinks to all folders matching the tag.
 scope start work
 # Opens new shell in /tmp/scope-work-<random>/
 # All your 'work' folders are now accessible via ls
+# Type 'exit' to leave and auto-cleanup
 ```
 
-### `scope remove-tag <tag>`
+### Bulk Operations
 
-Delete a tag entirely (removes it from all folders).
+#### `scope each <tag> <command>`
+
+Run a command in each tagged folder. Use `-p` for parallel execution.
 
 ```bash
-scope remove-tag old-project
+scope each work "git status -s"      # Run sequentially
+scope each work -p "npm install"     # Run in parallel
+scope each backend "go test ./..."   # Run tests across all backend projects
+```
+
+#### `scope status <tag>`
+
+Show git status for all tagged repositories (only shows repos with changes).
+
+```bash
+scope status work
+```
+
+#### `scope pull <tag>`
+
+Git pull across all tagged repositories (runs in parallel).
+
+```bash
+scope pull work
+```
+
+### Project Scanning
+
+#### `scope scan [path]`
+
+Scan a directory for `.scope` files and interactively apply tags.
+
+```bash
+scope scan              # Scan current directory
+scope scan ~/projects   # Scan specific directory
+```
+
+### Maintenance
+
+#### `scope prune [--dry-run]`
+
+Remove folders that no longer exist from the database.
+
+```bash
+scope prune --dry-run   # Preview what would be removed
+scope prune             # Actually remove stale entries
+```
+
+#### `scope update [--check]`
+
+Update scope to the latest version.
+
+```bash
+scope update --check    # Just check if update available
+scope update            # Download and install latest version
+```
+
+#### `scope debug`
+
+Show debug information (version, database path, stats).
+
+```bash
+scope debug
+```
+
+## Project Configuration (`.scope` files)
+
+You can add a `.scope` file to any project directory to define its tags. This makes it easy to share tagging conventions across teams or set up new machines.
+
+### File Format
+
+Create a `.scope` file in your project root:
+
+```yaml
+tags:
+  - work
+  - backend
+  - api
+```
+
+### Scanning for Projects
+
+Use `scope scan` to discover and apply tags from `.scope` files:
+
+```bash
+# Scan your projects directory
+scope scan ~/projects
+
+# Found 3 .scope files:
+#   ~/projects/api [work, backend, api]
+#   ~/projects/frontend [work, frontend, react]
+#   ~/projects/scripts [work, tools]
+#
+# Select folders to tag (all selected by default)
+# space: toggle, enter: confirm
+```
+
+The scanner will:
+- Recursively find all `.scope` files
+- Skip hidden directories (`.git`, `.node_modules`, etc.)
+- Show an interactive picker to select which projects to tag
+- Apply the tags from each `.scope` file
+
+### Example Project Structure
+
+```
+~/projects/
+├── my-api/
+│   ├── .scope          # tags: [work, backend, go]
+│   ├── main.go
+│   └── ...
+├── my-frontend/
+│   ├── .scope          # tags: [work, frontend, react]
+│   ├── package.json
+│   └── ...
+└── scripts/
+    ├── .scope          # tags: [work, tools]
+    └── ...
 ```
 
 ## How It Works
