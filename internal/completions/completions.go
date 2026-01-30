@@ -16,7 +16,7 @@ _scope_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="tag untag tags list start scan go pick open edit each status pull rename remove-tag prune export import update debug help version completions"
+    commands="tag bulk untag tags list start scan go pick open edit each status pull rename remove-tag prune export import update debug help version completions"
 
     # Get tags dynamically
     if command -v scope &> /dev/null; then
@@ -46,6 +46,17 @@ _scope_completions() {
         import)
             # Complete with yaml files
             COMPREPLY=( $(compgen -f -X '!*.yml' -- "${cur}") $(compgen -f -X '!*.yaml' -- "${cur}") )
+            return 0
+            ;;
+        bulk)
+            # Complete with files, then tags
+            if [[ ${COMP_CWORD} -eq 2 ]]; then
+                COMPREPLY=( $(compgen -f -- "${cur}") )
+            elif [[ ${COMP_CWORD} -eq 3 ]]; then
+                COMPREPLY=( $(compgen -W "${tags}" -- "${cur}") )
+            elif [[ ${COMP_CWORD} -eq 4 ]]; then
+                COMPREPLY=( $(compgen -W "--dry-run" -- "${cur}") )
+            fi
             return 0
             ;;
         completions)
@@ -92,6 +103,7 @@ _scope() {
 
     commands=(
         'tag:Tag a folder'
+        'bulk:Bulk tag paths from file'
         'untag:Remove a tag from a folder'
         'tags:Show all tags for a folder'
         'list:List all tags or folders with a tag'
@@ -150,6 +162,15 @@ _scope() {
                 import)
                     _files -g '*.y(a|)ml'
                     ;;
+                bulk)
+                    if [[ $CURRENT -eq 3 ]]; then
+                        _files
+                    elif [[ $CURRENT -eq 4 ]]; then
+                        _describe -t tags 'tags' tags
+                    elif [[ $CURRENT -eq 5 ]]; then
+                        _values 'flags' '--dry-run[preview changes]'
+                    fi
+                    ;;
                 completions)
                     _values 'shells' 'bash' 'zsh' 'fish'
                     ;;
@@ -178,6 +199,7 @@ complete -c scope -f
 
 # Commands
 complete -c scope -n "__fish_use_subcommand" -a "tag" -d "Tag a folder"
+complete -c scope -n "__fish_use_subcommand" -a "bulk" -d "Bulk tag paths from file"
 complete -c scope -n "__fish_use_subcommand" -a "untag" -d "Remove a tag from a folder"
 complete -c scope -n "__fish_use_subcommand" -a "tags" -d "Show all tags for a folder"
 complete -c scope -n "__fish_use_subcommand" -a "list" -d "List all tags or folders"
@@ -216,6 +238,7 @@ complete -c scope -n "__fish_seen_subcommand_from tag untag tags" -a "(__fish_co
 
 # Flags
 complete -c scope -n "__fish_seen_subcommand_from prune" -l dry-run -d "Preview changes"
+complete -c scope -n "__fish_seen_subcommand_from bulk" -l dry-run -d "Preview changes"
 complete -c scope -n "__fish_seen_subcommand_from update" -l check -d "Check only"
 complete -c scope -n "__fish_seen_subcommand_from each" -s p -l parallel -d "Run in parallel"
 
