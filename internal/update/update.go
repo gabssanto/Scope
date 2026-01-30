@@ -30,11 +30,11 @@ type Release struct {
 
 // UpdateInfo contains information about available updates
 type UpdateInfo struct {
-	CurrentVersion   string
-	LatestVersion    string
-	UpdateAvailable  bool
-	ReleaseURL       string
-	ReleaseNotes     string
+	CurrentVersion  string
+	LatestVersion   string
+	UpdateAvailable bool
+	ReleaseURL      string
+	ReleaseNotes    string
 }
 
 // getConfigDir returns the scope config directory
@@ -80,7 +80,7 @@ func fetchLatestRelease() (*Release, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch release: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
@@ -246,7 +246,7 @@ func PerformUpdate(currentVersion string) error {
 	if err != nil {
 		return fmt.Errorf("failed to download update: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download failed with status %d (asset may not exist for your platform)", resp.StatusCode)
@@ -270,11 +270,11 @@ func PerformUpdate(currentVersion string) error {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	// Download to temp file
 	_, err = io.Copy(tmpFile, resp.Body)
-	tmpFile.Close()
+	_ = tmpFile.Close()
 	if err != nil {
 		return fmt.Errorf("failed to download: %w", err)
 	}

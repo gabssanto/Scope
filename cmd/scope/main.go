@@ -31,6 +31,7 @@ const usage = `Scope - Fast folder navigation with tags
 
 Usage:
   scope tag <path> <tag>        Tag a folder (use . for current directory)
+  scope bulk <file> <tag>       Bulk tag paths from file (--dry-run to preview)
   scope untag <path> <tag>      Remove a tag from a folder
   scope tags <path>             Show all tags for a folder
   scope list [tag]              List all tags or folders with specific tag
@@ -78,6 +79,8 @@ Examples:
   scope each work "git status"  Run git status in each 'work' folder
   scope each work -p "go test"  Run tests in parallel across folders
   scope untag . work            Remove 'work' tag from current directory
+  scope bulk paths.txt work     Bulk tag paths from file
+  scope bulk paths.txt work --dry-run  Preview bulk tagging
   scope rename old new          Rename 'old' tag to 'new'
   scope remove-tag old          Delete 'old' tag entirely
   scope prune --dry-run         Preview folders to be removed
@@ -133,6 +136,8 @@ func run() error {
 	switch command {
 	case "tag":
 		return handleTag()
+	case "bulk":
+		return handleBulk()
 	case "untag":
 		return handleUntag()
 	case "tags":
@@ -206,6 +211,87 @@ func handleTag() error {
 	}
 
 	fmt.Printf("Tagged '%s' with '%s'\n", absPath, tagName)
+	return nil
+}
+
+func handleBulk() error {
+	if len(os.Args) < 4 {
+		return fmt.Errorf("usage: scope bulk <file> <tag> [--dry-run]")
+	}
+
+	filePath := os.Args[2]
+	tagName := os.Args[3]
+	dryRun := len(os.Args) >= 5 && (os.Args[4] == "--dry-run" || os.Args[4] == "-n")
+
+	// Read file
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read file '%s': %w", filePath, err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+
+	successCount := 0
+	skipCount := 0
+	errorCount := 0
+
+	for lineNum, line := range lines {
+		// Trim whitespace
+		line = strings.TrimSpace(line)
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Resolve path
+		absPath, err := resolvePath(line)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Line %d: failed to resolve path '%s': %v\n", lineNum+1, line, err)
+			errorCount++
+			continue
+		}
+
+		// Check if directory exists
+		info, err := os.Stat(absPath)
+		if os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "Line %d: path does not exist: %s\n", lineNum+1, absPath)
+			skipCount++
+			continue
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Line %d: failed to access path '%s': %v\n", lineNum+1, absPath, err)
+			errorCount++
+			continue
+		}
+		if !info.IsDir() {
+			fmt.Fprintf(os.Stderr, "Line %d: not a directory: %s\n", lineNum+1, absPath)
+			skipCount++
+			continue
+		}
+
+		if dryRun {
+			fmt.Printf("[DRY-RUN] Would tag '%s' with '%s'\n", absPath, tagName)
+			successCount++
+		} else {
+			if err := tag.AddTag(absPath, tagName); err != nil {
+				fmt.Fprintf(os.Stderr, "Line %d: failed to tag '%s': %v\n", lineNum+1, absPath, err)
+				errorCount++
+				continue
+			}
+			fmt.Printf("Tagged '%s' with '%s'\n", absPath, tagName)
+			successCount++
+		}
+	}
+
+	// Summary
+	fmt.Println()
+	if dryRun {
+		fmt.Printf("Dry-run complete: %d would be tagged, %d skipped, %d errors\n", successCount, skipCount, errorCount)
+	} else {
+		fmt.Printf("Bulk tagging complete: %d tagged, %d skipped, %d errors\n", successCount, skipCount, errorCount)
+	}
+
 	return nil
 }
 
@@ -411,10 +497,7 @@ func handleRename() error {
 }
 
 func handlePrune() error {
-	dryRun := false
-	if len(os.Args) >= 3 && (os.Args[2] == "--dry-run" || os.Args[2] == "-n") {
-		dryRun = true
-	}
+	dryRun := len(os.Args) >= 3 && (os.Args[2] == "--dry-run" || os.Args[2] == "-n")
 
 	result, err := tag.Prune(dryRun)
 	if err != nil {
@@ -530,7 +613,10 @@ func handleImport() error {
 }
 
 func handleDebug() error {
-	homeDir, _ := os.UserHomeDir()
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
 	dbPath := filepath.Join(homeDir, ".config", "scope", "scope.db")
 
 	fmt.Println("Scope Debug Information")
@@ -992,11 +1078,7 @@ func handleCompletions() error {
 }
 
 func handleUpdate() error {
-	// Check for --check flag
-	checkOnly := false
-	if len(os.Args) >= 3 && (os.Args[2] == "--check" || os.Args[2] == "-c") {
-		checkOnly = true
-	}
+	checkOnly := len(os.Args) >= 3 && (os.Args[2] == "--check" || os.Args[2] == "-c")
 
 	if checkOnly {
 		info, err := update.CheckForUpdate(Version)

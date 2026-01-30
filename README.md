@@ -82,6 +82,26 @@ scope tag . work
 scope tag ~/my-project work,urgent,backend
 ```
 
+#### `scope bulk <file> <tag> [--dry-run]`
+
+Bulk tag multiple paths from a file. The file should contain one path per line.
+Empty lines and lines starting with `#` are ignored.
+
+```bash
+scope bulk paths.txt work           # Tag all paths with 'work'
+scope bulk paths.txt work --dry-run # Preview what would be tagged
+```
+
+Example paths file:
+```
+# Services
+/home/user/project/services/api
+/home/user/project/services/frontend
+
+# Infrastructure
+/home/user/project/infra/db
+```
+
 #### `scope untag <path> <tag>`
 
 Remove a tag from a folder.
