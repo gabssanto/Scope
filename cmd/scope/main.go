@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gabssanto/Scope/internal/db"
+	"github.com/gabssanto/Scope/internal/scan"
 	"github.com/gabssanto/Scope/internal/session"
 	"github.com/gabssanto/Scope/internal/tag"
 )
@@ -22,6 +23,7 @@ Usage:
   scope untag <path> <tag>      Remove a tag from a folder
   scope list [tag]              List all tags or folders with specific tag
   scope start <tag>             Start a scoped session
+  scope scan [path]             Scan for .scope files and apply tags
   scope remove-tag <tag>        Delete a tag entirely
   scope help                    Show this help message
   scope version                 Show version information
@@ -74,6 +76,8 @@ func run() error {
 		return handleList()
 	case "start":
 		return handleStart()
+	case "scan":
+		return handleScan()
 	case "remove-tag":
 		return handleRemoveTag()
 	case "help", "--help", "-h":
@@ -211,6 +215,31 @@ func handleRemoveTag() error {
 
 	fmt.Printf("Removed tag '%s'\n", tagName)
 	return nil
+}
+
+func handleScan() error {
+	// Default to current directory
+	path := "."
+	if len(os.Args) >= 3 {
+		path = os.Args[2]
+	}
+
+	// Resolve to absolute path
+	absPath, err := resolvePath(path)
+	if err != nil {
+		return err
+	}
+
+	// Verify it's a directory
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return fmt.Errorf("cannot access path: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("path is not a directory: %s", absPath)
+	}
+
+	return scan.RunScan(absPath)
 }
 
 // resolvePath converts a path (including .) to an absolute path
