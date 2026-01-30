@@ -12,18 +12,45 @@ import (
 
 // StartSession creates a temporary workspace with symlinks and spawns a shell
 func StartSession(tagName string) error {
-	// Get all folders for the tag
-	folders, err := tag.ListFoldersByTag(tagName)
-	if err != nil {
-		return fmt.Errorf("failed to list folders: %w", err)
+	return StartMultiTagSession([]string{tagName})
+}
+
+// StartMultiTagSession creates a workspace with folders from multiple tags
+func StartMultiTagSession(tagNames []string) error {
+	if len(tagNames) == 0 {
+		return fmt.Errorf("no tags provided")
 	}
 
-	if len(folders) == 0 {
-		return fmt.Errorf("no folders found with tag: %s", tagName)
+	// Collect folders from all tags (use map to dedupe)
+	folderSet := make(map[string]bool)
+	for _, tagName := range tagNames {
+		folders, err := tag.ListFoldersByTag(tagName)
+		if err != nil {
+			return fmt.Errorf("failed to list folders for tag '%s': %w", tagName, err)
+		}
+		for _, f := range folders {
+			folderSet[f] = true
+		}
+	}
+
+	if len(folderSet) == 0 {
+		return fmt.Errorf("no folders found with tags: %v", tagNames)
+	}
+
+	// Convert map to slice
+	folders := make([]string, 0, len(folderSet))
+	for f := range folderSet {
+		folders = append(folders, f)
+	}
+
+	// Create session name from tags
+	sessionName := tagNames[0]
+	if len(tagNames) > 1 {
+		sessionName = fmt.Sprintf("%s+%d", tagNames[0], len(tagNames)-1)
 	}
 
 	// Create temp directory
-	tempDir, err := os.MkdirTemp("", fmt.Sprintf("scope-%s-", tagName))
+	tempDir, err := os.MkdirTemp("", fmt.Sprintf("scope-%s-", sessionName))
 	if err != nil {
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
@@ -59,7 +86,11 @@ func StartSession(tagName string) error {
 		}
 	}
 
-	fmt.Printf("Scope session started with tag '%s'\n", tagName)
+	if len(tagNames) == 1 {
+		fmt.Printf("Scope session started with tag '%s'\n", tagNames[0])
+	} else {
+		fmt.Printf("Scope session started with tags: %v\n", tagNames)
+	}
 	fmt.Printf("Workspace: %s\n", tempDir)
 	fmt.Printf("Folders: %d\n\n", len(folders))
 	fmt.Println("Type 'exit' to leave the scoped session")
@@ -80,7 +111,7 @@ func StartSession(tagName string) error {
 
 	// Set environment variables
 	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("SCOPE_SESSION=%s", tagName),
+		fmt.Sprintf("SCOPE_SESSION=%s", sessionName),
 		fmt.Sprintf("SCOPE_WORKSPACE=%s", tempDir),
 	)
 

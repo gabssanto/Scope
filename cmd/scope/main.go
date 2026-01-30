@@ -35,7 +35,7 @@ Usage:
   scope untag <path> <tag>      Remove a tag from a folder
   scope tags <path>             Show all tags for a folder
   scope list [tag]              List all tags or folders with specific tag
-  scope start <tag>             Start a scoped session
+  scope start <tag> [tags...]   Start a scoped session (supports multiple tags)
   scope scan [path]             Scan for .scope files and apply tags
   scope go <tag>                Jump to a tagged folder (outputs path)
   scope pick [tag]              Interactive folder picker
@@ -76,6 +76,7 @@ Examples:
   scope list                    Show all tags
   scope list work               Show all folders tagged 'work'
   scope start work              Open scoped session with 'work' folders
+  scope start work api          Combine multiple tags in one session
   scope go work                 Output path to 'work' folder (for cd)
   scope open work               Open 'work' folders in Finder/Explorer
   scope edit work               Open 'work' folders in $EDITOR
@@ -383,11 +384,12 @@ func handleList() error {
 
 func handleStart() error {
 	if len(os.Args) < 3 {
-		return fmt.Errorf("usage: scope start <tag>")
+		return fmt.Errorf("usage: scope start <tag> [tag2] [tag3] ...")
 	}
 
-	tagName := os.Args[2]
-	return session.StartSession(tagName)
+	// Support multiple tags
+	tags := os.Args[2:]
+	return session.StartMultiTagSession(tags)
 }
 
 func handleRemoveTag() error {

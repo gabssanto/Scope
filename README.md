@@ -241,14 +241,19 @@ scope edit work
 
 ### Sessions
 
-#### `scope start <tag>`
+#### `scope start <tag> [tag2] [tag3] ...`
 
-Create a temporary workspace with symlinks to all folders matching the tag.
+Create a temporary workspace with symlinks to all folders matching the tag(s). Supports multiple tags to combine folders from different tags into one session.
 
 ```bash
+# Single tag
 scope start work
 # Opens new shell in /tmp/scope-work-<random>/
-# All your 'work' folders are now accessible via ls
+
+# Multiple tags - combines folders from both tags
+scope start backend api
+# Opens new shell with folders from both 'backend' and 'api' tags
+
 # Type 'exit' to leave and auto-cleanup
 ```
 
