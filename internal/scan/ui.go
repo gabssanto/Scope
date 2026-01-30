@@ -53,7 +53,7 @@ func SelectScopes(scopes []DiscoveredScope) ([]DiscoveredScope, error) {
 
 	err := form.Run()
 	if err != nil {
-		return nil, fmt.Errorf("selection cancelled: %w", err)
+		return nil, fmt.Errorf("selection canceled: %w", err)
 	}
 
 	// Build result from selected indices
