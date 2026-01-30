@@ -13,6 +13,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/charmbracelet/huh"
+	"gopkg.in/yaml.v3"
+
+	"github.com/gabssanto/Scope/internal/completions"
 	"github.com/gabssanto/Scope/internal/db"
 	"github.com/gabssanto/Scope/internal/scan"
 	"github.com/gabssanto/Scope/internal/session"
@@ -33,6 +37,7 @@ Usage:
   scope start <tag>             Start a scoped session
   scope scan [path]             Scan for .scope files and apply tags
   scope go <tag>                Jump to a tagged folder (outputs path)
+  scope pick [tag]              Interactive folder picker
   scope open <tag>              Open tagged folder(s) in file manager
   scope edit <tag>              Open tagged folder(s) in editor
   scope each <tag> <cmd>        Run command in each tagged folder
@@ -41,7 +46,10 @@ Usage:
   scope rename <old> <new>      Rename a tag
   scope remove-tag <tag>        Delete a tag entirely
   scope prune [--dry-run]       Remove folders that no longer exist
+  scope export                  Export all tags to YAML
+  scope import <file>           Import tags from YAML file
   scope update [--check]        Update to latest version
+  scope completions <shell>     Generate shell completions (bash/zsh/fish)
   scope debug                   Show debug information
   scope help                    Show this help message
   scope version                 Show version information
@@ -137,6 +145,8 @@ func run() error {
 		return handleScan()
 	case "go":
 		return handleGo()
+	case "pick":
+		return handlePick()
 	case "open":
 		return handleOpen()
 	case "edit":
@@ -153,8 +163,14 @@ func run() error {
 		return handleRemoveTag()
 	case "prune":
 		return handlePrune()
+	case "export":
+		return handleExport()
+	case "import":
+		return handleImport()
 	case "update":
 		return handleUpdate()
+	case "completions":
+		return handleCompletions()
 	case "debug":
 		return handleDebug()
 	case "help", "--help", "-h":
@@ -423,6 +439,96 @@ func handlePrune() error {
 	return nil
 }
 
+// ExportData represents the structure of exported data
+type ExportData struct {
+	Version int                 `yaml:"version"`
+	Tags    map[string][]string `yaml:"tags"`
+}
+
+func handleExport() error {
+	tags, err := tag.ListTags()
+	if err != nil {
+		return err
+	}
+
+	if len(tags) == 0 {
+		fmt.Fprintln(os.Stderr, "No tags to export")
+		return nil
+	}
+
+	data := ExportData{
+		Version: 1,
+		Tags:    make(map[string][]string),
+	}
+
+	// Get folders for each tag
+	for tagName := range tags {
+		folders, err := tag.ListFoldersByTag(tagName)
+		if err != nil {
+			return fmt.Errorf("failed to get folders for tag '%s': %w", tagName, err)
+		}
+		data.Tags[tagName] = folders
+	}
+
+	// Marshal to YAML
+	output, err := yaml.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal to YAML: %w", err)
+	}
+
+	fmt.Print(string(output))
+	return nil
+}
+
+func handleImport() error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: scope import <file>")
+	}
+
+	filePath := os.Args[2]
+
+	// Read file
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Parse YAML
+	var data ExportData
+	if err := yaml.Unmarshal(content, &data); err != nil {
+		return fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	if len(data.Tags) == 0 {
+		fmt.Println("No tags found in import file")
+		return nil
+	}
+
+	// Import tags
+	imported := 0
+	skipped := 0
+
+	for tagName, folders := range data.Tags {
+		for _, folder := range folders {
+			// Check if folder exists
+			if _, err := os.Stat(folder); os.IsNotExist(err) {
+				fmt.Fprintf(os.Stderr, "Skipping non-existent folder: %s\n", folder)
+				skipped++
+				continue
+			}
+
+			if err := tag.AddTag(folder, tagName); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to add tag '%s' to %s: %v\n", tagName, folder, err)
+				continue
+			}
+			imported++
+		}
+	}
+
+	fmt.Printf("Imported %d tag assignments (%d skipped)\n", imported, skipped)
+	return nil
+}
+
 func handleDebug() error {
 	homeDir, _ := os.UserHomeDir()
 	dbPath := filepath.Join(homeDir, ".config", "scope", "scope.db")
@@ -511,6 +617,60 @@ func handleGo() error {
 	}
 
 	fmt.Println(folders[choice-1])
+	return nil
+}
+
+func handlePick() error {
+	var folders []string
+	var err error
+
+	// If tag provided, filter by tag
+	if len(os.Args) >= 3 {
+		tagName := os.Args[2]
+		folders, err = tag.ListFoldersByTag(tagName)
+		if err != nil {
+			return err
+		}
+		if len(folders) == 0 {
+			return fmt.Errorf("no folders found with tag '%s'", tagName)
+		}
+	} else {
+		// Get all folders from all tags
+		folders, err = tag.ListAllFolders()
+		if err != nil {
+			return err
+		}
+		if len(folders) == 0 {
+			fmt.Println("No tagged folders found. Use 'scope tag <path> <tag>' to tag folders.")
+			return nil
+		}
+	}
+
+	// Build options for select
+	options := make([]huh.Option[string], len(folders))
+	for i, folder := range folders {
+		folderName := filepath.Base(folder)
+		options[i] = huh.NewOption(fmt.Sprintf("%s (%s)", folderName, folder), folder)
+	}
+
+	var selected string
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Select a folder").
+				Description("Use / to filter, enter to select").
+				Options(options...).
+				Value(&selected),
+		),
+	)
+
+	err = form.Run()
+	if err != nil {
+		return fmt.Errorf("selection canceled: %w", err)
+	}
+
+	// Output the selected path
+	fmt.Println(selected)
 	return nil
 }
 
@@ -814,6 +974,21 @@ func handlePull() error {
 
 	fmt.Printf("Pulling %d repositories...\n", len(gitFolders))
 	return runEachParallel(gitFolders, "git pull")
+}
+
+func handleCompletions() error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: scope completions <shell>\nSupported shells: bash, zsh, fish")
+	}
+
+	shell := os.Args[2]
+	script, err := completions.Generate(shell)
+	if err != nil {
+		return err
+	}
+
+	fmt.Print(script)
+	return nil
 }
 
 func handleUpdate() error {

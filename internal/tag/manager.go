@@ -219,6 +219,36 @@ func GetTagsForFolder(path string) ([]string, error) {
 	return tags, nil
 }
 
+// ListAllFolders returns all unique folders that have at least one tag
+func ListAllFolders() ([]string, error) {
+	database := db.GetDB()
+	if database == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	rows, err := database.Query(`
+		SELECT DISTINCT f.path
+		FROM folders f
+		JOIN folder_tags ft ON f.id = ft.folder_id
+		ORDER BY f.path
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query folders: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var folders []string
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, fmt.Errorf("failed to scan folder: %w", err)
+		}
+		folders = append(folders, path)
+	}
+
+	return folders, nil
+}
+
 // RenameTag renames a tag across all folders
 func RenameTag(oldName, newName string) error {
 	database := db.GetDB()

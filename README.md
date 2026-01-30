@@ -143,6 +143,15 @@ sg() { cd "$(scope go "$@")" 2>/dev/null || scope go "$@"; }
 
 Then use `sg work` to instantly cd to your work folder.
 
+#### `scope pick [tag]`
+
+Interactive folder picker with search/filter support.
+
+```bash
+scope pick          # Pick from all tagged folders
+scope pick work     # Pick from folders with 'work' tag
+```
+
 #### `scope open <tag>`
 
 Open tagged folder(s) in your system file manager (Finder/Nautilus/Explorer).
@@ -229,6 +238,48 @@ Update scope to the latest version.
 ```bash
 scope update --check    # Just check if update available
 scope update            # Download and install latest version
+```
+
+#### `scope export`
+
+Export all tags to YAML (outputs to stdout).
+
+```bash
+scope export > backup.yml
+```
+
+Output format:
+```yaml
+version: 1
+tags:
+  work:
+    - /path/to/project1
+    - /path/to/project2
+  personal:
+    - /path/to/blog
+```
+
+#### `scope import <file>`
+
+Import tags from a YAML file.
+
+```bash
+scope import backup.yml
+```
+
+#### `scope completions <shell>`
+
+Generate shell completion scripts.
+
+```bash
+# Bash - add to ~/.bashrc
+eval "$(scope completions bash)"
+
+# Zsh - add to ~/.zshrc
+eval "$(scope completions zsh)"
+
+# Fish - save to completions directory
+scope completions fish > ~/.config/fish/completions/scope.fish
 ```
 
 #### `scope debug`

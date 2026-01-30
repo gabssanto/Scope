@@ -57,7 +57,7 @@ Print debug info for troubleshooting.
 
 ---
 
-## Phase 2: Navigation Commands ✅ COMPLETE (except pick)
+## Phase 2: Navigation Commands ✅ COMPLETE
 
 Commands that improve daily workflow.
 
@@ -79,7 +79,7 @@ sg() { cd "$(scope go "$@")" }
 
 ---
 
-### 2.2 `scope pick [tag]`
+### 2.2 `scope pick [tag]` ✅
 Interactive fuzzy finder.
 
 **Implementation:**
@@ -300,9 +300,9 @@ Show what's new.
 
 ---
 
-## Phase 7: Polish & DX
+## Phase 7: Polish & DX ✅ MOSTLY COMPLETE
 
-### 7.1 `scope completions <shell>`
+### 7.1 `scope completions <shell>` ✅
 Shell completion scripts.
 
 **Implementation:**
@@ -335,7 +335,7 @@ Health check and diagnostics.
 
 ---
 
-### 7.3 `scope export` / `scope import`
+### 7.3 `scope export` / `scope import` ✅
 Backup and restore.
 
 **Implementation:**
@@ -429,25 +429,29 @@ hooks:
 | Phase | Commands | Status |
 |-------|----------|--------|
 | 1 | rename, tags, prune, debug | ✅ Complete |
-| 2 | go, pick, open, edit | ✅ Complete (pick pending) |
+| 2 | go, pick, open, edit | ✅ Complete |
 | 3 | merge, clone, alias | Pending |
 | 4 | each, status, pull, scan | ✅ Complete |
 | 5 | config, .scope.yml | Pending |
 | 6 | update check, update, changelog | ✅ Complete (changelog pending) |
-| 7 | completions, doctor, export/import | Pending |
+| 7 | completions, doctor, export/import | ✅ Complete (doctor pending) |
 | 8 | git clone, watch, multi-tag, hooks | Pending |
 
-### Implemented Commands (Current Session)
+### Implemented Commands
 - `scope rename <old> <new>` - Rename tags
 - `scope tags <path>` - Show tags for a folder
 - `scope prune [--dry-run]` - Remove stale folders
 - `scope debug` - Debug information
 - `scope go <tag>` - Quick jump to folder
+- `scope pick [tag]` - Interactive folder picker
 - `scope open <tag>` - Open in file manager
 - `scope edit <tag>` - Open in editor
 - `scope each <tag> <cmd>` - Run command in each folder
 - `scope status <tag>` - Git status across folders
 - `scope pull <tag>` - Git pull across folders
+- `scope export` - Export tags to YAML
+- `scope import <file>` - Import tags from YAML
+- `scope completions <shell>` - Generate shell completions
 - `scope update [--check]` - Self-update with version check
 
 ---
